@@ -5,8 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>宴回し v2.1</title>
+<title>宴回し v2.2</title>
 <!-- changelog
+v2.2 (2026-07-13) 検索の堅牢化(配備テストで検索失敗の報告を受けて)
+ - iTunes検索を三段構えに: JSONP→1.5秒待って再試行→fetch直叩き(CORSが通る環境向け)
+ - entity=songを追加(楽曲のみに絞る)
+ - 失敗理由(タイムアウト/通信拒否/HTTPコード)を画面表示、レート制限(約20回/分)とコンテンツブロッカーの案内を追加
+ - プレビュー読み込みの失敗も段階(HTTP/デコード)を表示
 v2.1 (2026-07-12) GitHub Pages配備版
  - 「手持ちの曲」一覧を支度画面に追加: 読み込んだプレビュー曲に役どころ(歓談/中間/宴=energy 1/2/3)をタップで割り当て。選曲AIがモード別に使い分ける
  - ファイル名をindex.htmlに(GitHub Pages用)
@@ -178,7 +183,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:34px;heigh
   src="data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="></audio>
 
 <header>
-  <h1>宴回し</h1><span class="ver mono">v2.1</span>
+  <h1>宴回し</h1><span class="ver mono">v2.2</span>
   <span class="mode-badge" id="mode-badge">歓談</span>
   <button class="icon-btn btn-sub" id="btn-gear">支度</button>
 </header>
@@ -827,18 +832,32 @@ function micLoop(){
   requestAnimationFrame(micLoop);
 }
 
-/* ================= iTunes検索(JSONP / 配備後有効) ================= */
-function itunesSearch(term){
+/* ================= iTunes検索(JSONP優先・再試行・fetch代替) ================= */
+function jsonpSearch(term){
   return new Promise((res,rej)=>{
-    const cb = "itcb"+Date.now();
-    const timer = setTimeout(()=>{cleanup(); rej(new Error("timeout"));}, 8000);
-    function cleanup(){ delete window[cb]; s.remove(); clearTimeout(timer); }
-    window[cb] = d=>{ cleanup(); res(d); };
+    const cb = "itcb"+Math.floor(Math.random()*1e9);
     const s = document.createElement("script");
-    s.src = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=JP&media=music&limit=10&callback=${cb}`;
-    s.onerror = ()=>{ cleanup(); rej(new Error("network")); };
+    const timer = setTimeout(()=>{cleanup(); rej(new Error("タイムアウト"));}, 8000);
+    function cleanup(){ try{delete window[cb];}catch(e){} s.remove(); clearTimeout(timer); }
+    window[cb] = d=>{ cleanup(); res(d); };
+    s.src = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=JP&media=music&entity=song&limit=10&callback=${cb}`;
+    s.onerror = ()=>{ cleanup(); rej(new Error("通信拒否")); };
     document.body.appendChild(s);
   });
+}
+async function itunesSearch(term){
+  try{ return await jsonpSearch(term); }
+  catch(e1){
+    // 1.5秒待って再試行(一時的失敗・軽いレート制限対策)
+    await new Promise(r=>setTimeout(r,1500));
+    try{ return await jsonpSearch(term); }
+    catch(e2){
+      // 最後にfetch直叩き(環境によってはCORSが通る)
+      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=JP&media=music&entity=song&limit=10`);
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      return await r.json();
+    }
+  }
 }
 async function doSearch(){
   const q = el.q.value.trim(); if(!q) return;
@@ -854,15 +873,18 @@ async function doSearch(){
       el.results.appendChild(div);
     });
   }catch(e){
-    el.results.innerHTML=`<div class="note">検索できませんでした。Claudeアプリ内では外部通信が使えないため、GitHub Pages配備後にお試しください。内蔵デモ音源はこのまま使えます</div>`;
+    el.results.innerHTML=`<div class="note">検索に失敗しました(${e.message||e})。このAPIは<b>1分あたり約20回</b>の制限があるため、1分ほど待ってから再試行してください。それでも失敗する場合は、コンテンツブロッカー(広告ブロック)がitunes.apple.comを遮断していないかご確認ください。</div>`;
   }
 }
 async function addPreviewTrack(r){
   toast(`「${r.trackName}」を読み込んでいます…`);
   try{
     const resp = await fetch(r.previewUrl);
+    if(!resp.ok) throw new Error("HTTP "+resp.status);
     const ab = await resp.arrayBuffer();
-    const buf = await ctx.decodeAudioData(ab);
+    let buf;
+    try{ buf = await ctx.decodeAudioData(ab); }
+    catch(e){ throw new Error("デコード失敗"); }
     const track = { id:"p"+r.trackId, name:r.trackName, artist:r.artistName,
                     bpm:null, energy:2, previewUrl:r.previewUrl, buffer:buf };
     state.previewTracks.push(track);
@@ -870,7 +892,7 @@ async function addPreviewTrack(r){
     toast(`「${r.trackName}」が候補に加わりました`);
     if(state.mode==="party") renderCandidates();
   }catch(e){
-    toast("この曲の音源を読み込めませんでした(通信制限の可能性)");
+    toast(`読み込み失敗(${e.message||"通信エラー"}): CORS制限の可能性。結果を教えてください`);
   }
 }
 function renderMyTracks(){ // 手持ちの曲: 役どころ(energy)をタップで循環
