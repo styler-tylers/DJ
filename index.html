@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>宴回し v2.1</title>
+<!-- changelog
+v2.1 (2026-07-12) GitHub Pages配備版
+ - 「手持ちの曲」一覧を支度画面に追加: 読み込んだプレビュー曲に役どころ(歓談/中間/宴=energy 1/2/3)をタップで割り当て。選曲AIがモード別に使い分ける
+ - ファイル名をindex.htmlに(GitHub Pages用)
+v2.0 (2026-07-12) レイアウト骨格再構築(DJ/音楽アプリのレイアウト調査より)
+ - 3画面構成に再編: 歓談画面(場のディスプレイ) / 宴画面(スクロールなし固定操作盤) / 支度画面(曲検索・マイク)
+ - 演奏画面のスクロール全廃(html/body overflow:hidden、宴画面はflexで1画面に収める)
+ - XYカオスパッド⇄ハープは中央の「顔」領域でタブ切替(スワイプ切替はXY演奏ジェスチャーと衝突するため不採用)
+ - ハープを帯から全面に拡大 / パッド2段×4列を最下段(親指の一等地)に配置
+ - 乾杯を両モードに常設、歓談画面は盤を主役に情報最小化
+ - エンジン(音声部)はv1.6を移植: デモ8曲/ロール/エコーアウト/スピンバック/XY/ハープ/サンプラー6種/会話追従/iTunes検索
+v1.6 (2026-07-12) ロール・エコーアウト・なでるハープ追加
+v1.5 (2026-07-12) XYカオスパッド・スピンバック追加
+v1.4 (2026-07-12) 長押しコピー抑止
+v1.3 (2026-07-12) パッド発火をclickに戻す・自動繋ぎをゆったり化
+v1.2 (2026-07-12) パッド7種化・FXバス新設・クロスフェーダー即時始動
+v1.1 (2026-07-12) iOSサイレントスイッチ対策・開演チャイム
+v1.0 (2026-07-12) 初版
+-->
+<style>
+:root{
+  --bg:#171F2B; --panel:#202A3C; --ink:#EAEFF5; --sub:#8A93A5;
+  --gold:#C8963E; --red:#B3402E; --celadon:#6AA89D; --wisteria:#8B7FA6;
+  --line:#2C3850;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:auto;user-select:auto}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif;
+  line-height:1.6; height:100dvh;
+  display:flex; flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  touch-action:manipulation;
+}
+h1,.serif{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;letter-spacing:0.04em;font-weight:600}
+.mono{font-family:"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
+
+/* ── ヘッダー(共通・薄く) ── */
+header{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none}
+header h1{font-size:20px}
+header .ver{font-size:11px;color:var(--sub)}
+header .mode-badge{margin-left:auto;font-size:12px;color:var(--sub);border:1px solid var(--line);padding:1px 10px;border-radius:2px}
+body.party header .mode-badge{color:var(--gold);border-color:var(--gold)}
+.icon-btn{min-height:36px;padding:4px 12px;font-size:14px}
+
+/* ── ボタン共通 ── */
+button{
+  font:inherit;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);min-height:48px;padding:8px 12px;
+  border-radius:2px;cursor:pointer;
+}
+button:active{background:#2a3650}
+.btn-gold{border-color:var(--gold);color:var(--gold)}
+.btn-sub{color:var(--sub)}
+
+/* ── 画面切替 ── */
+.screen{flex:1;display:none;flex-direction:column;min-height:0}
+body.conv #screen-conv{display:flex}
+body.party #screen-party{display:flex}
+
+/* ── 歓談画面: 場のディスプレイ ── */
+#screen-conv{justify-content:space-between;padding:16px;text-align:center}
+.disc-wrap{position:relative;width:min(56vw,240px);aspect-ratio:1;margin:0 auto}
+.disc{
+  width:100%;height:100%;border-radius:50%;
+  background:
+    radial-gradient(circle at 50% 50%, #0e1420 0 18%, transparent 18%),
+    repeating-radial-gradient(circle at 50% 50%, #1b2434 0 3px, #151d2b 3px 6px);
+  border:2px solid var(--line);
+  animation:spin 4s linear infinite; animation-play-state:paused;
+  transition:box-shadow 1.2s ease, border-color 1.2s ease;
+}
+.disc::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--gold)}
+body.playing .disc{animation-play-state:running}
+body.party .disc{border-color:var(--gold);box-shadow:0 0 28px rgba(200,150,62,.45), 0 0 80px rgba(200,150,62,.18)}
+@keyframes spin{to{transform:rotate(360deg)}}
+#screen-conv .np-name{font-size:22px;margin-top:16px}
+#screen-conv .np-meta{font-size:14px;color:var(--sub);margin-top:2px}
+.energy{color:var(--sub)} .energy .on1{color:var(--celadon)} .energy .on2{color:var(--gold)} .energy .on3{color:var(--red)}
+.phase-line{font-size:12px;color:var(--sub);margin-top:6px}
+#conv-actions{display:flex;flex-direction:column;gap:8px}
+#btn-up{font-size:20px;min-height:64px}
+
+/* ── 宴画面: スクロールなしの固定操作盤 ── */
+#screen-party{padding:8px 12px;gap:8px}
+.np-strip{display:flex;align-items:center;gap:8px;flex:none}
+.np-strip .np-name{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.np-strip .np-meta{font-size:12px;color:var(--sub);white-space:nowrap}
+#btn-down{min-height:36px;padding:4px 10px;font-size:12px}
+.cards{display:flex;gap:6px;flex:none}
+.card{flex:1;background:var(--panel);border:1px solid var(--line);padding:6px 4px;text-align:center;cursor:pointer;min-height:52px}
+.card:active{border-color:var(--gold)}
+.card .c-name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .c-meta{font-size:11px;color:var(--sub)}
+.sec-label{font-size:11px;color:var(--sub);letter-spacing:0.08em;flex:none}
+
+/* 顔領域: XY⇄ハープ */
+.seg{display:flex;gap:6px;flex:none}
+.seg button{flex:1;min-height:34px;font-size:13px;color:var(--sub)}
+.seg button.on{border-color:var(--gold);color:var(--gold)}
+#face{position:relative;flex:1;min-height:140px}
+.face-panel{position:absolute;inset:0;display:none}
+.face-panel.show{display:block}
+#xy{position:absolute;inset:0;background:var(--panel);border:1px solid var(--line);touch-action:none;overflow:hidden}
+#xy::before{content:"";position:absolute;inset:0;background:
+  linear-gradient(to right, rgba(139,127,166,.10), transparent 55%),
+  linear-gradient(to top, transparent 45%, rgba(106,168,157,.10))}
+#xy-dot{position:absolute;width:30px;height:30px;border-radius:50%;border:2px solid var(--gold);background:rgba(200,150,62,.25);box-shadow:0 0 16px rgba(200,150,62,.5);transform:translate(-50%,-50%);left:100%;top:100%;opacity:0;transition:opacity .2s}
+#xy.active #xy-dot{opacity:1}
+.xy-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:12px;pointer-events:none;transition:opacity .3s}
+#xy.active .xy-hint{opacity:0}
+#harp{position:absolute;inset:0;background:var(--panel);border:1px solid var(--line);touch-action:none;
+  background-image:repeating-linear-gradient(to right, transparent 0, transparent calc(10% - 1px), var(--line) calc(10% - 1px), var(--line) 10%)}
+#harp.strum{border-color:var(--celadon)}
+
+/* ホールド技・クロスフェード・パッド */
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;flex:none}
+.row3 button{min-height:44px;font-size:13px}
+#xf-block{flex:none}
+input[type=range]{width:100%;height:40px;-webkit-appearance:none;background:transparent;touch-action:none}
+input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:34px;height:34px;border-radius:50%;background:var(--panel);border:2px solid var(--gold);margin-top:-15px}
+.xf-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--sub)}
+.pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:none}
+.pads button{min-height:52px;font-size:13px;padding:4px}
+#btn-drop{border-color:var(--red);color:#e0705d}
+
+/* ── 支度画面(オーバーレイ) ── */
+#screen-setup{position:fixed;inset:0;background:var(--bg);z-index:5;display:none;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#screen-setup.open{display:flex}
+#setup-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line)}
+#setup-head h2{font-size:18px;font-family:"Hiragino Mincho ProN","Yu Mincho",serif}
+#setup-body{flex:1;overflow-y:auto;padding:16px 12px 48px}
+#setup-body section{margin-bottom:24px}
+.note{font-size:12px;color:var(--sub);margin-top:8px}
+#search-row{display:flex;gap:8px}
+#search-row input{flex:1;font:inherit;font-size:16px;background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:8px 12px;min-height:48px}
+#results{margin-top:8px}
+.res{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid var(--line);cursor:pointer}
+.res:active{background:var(--panel)}
+.res img{width:44px;height:44px;border:1px solid var(--line)}
+.res .r-name{font-size:14px}
+.res .r-artist{font-size:12px;color:var(--sub)}
+#mic-meter{height:4px;background:var(--line);margin-top:8px;position:relative;overflow:hidden}
+#mic-meter i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--celadon)}
+
+/* ── 開演オーバーレイ ── */
+#overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:24px;z-index:10;padding:24px;text-align:center}
+#overlay h1{font-size:40px}
+#overlay p{color:var(--sub);font-size:14px;max-width:320px}
+#btn-start{font-size:20px;padding:16px 48px;border-color:var(--gold);color:var(--gold)}
+
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--gold);color:var(--ink);padding:8px 24px;font-size:14px;border-radius:2px;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%;z-index:20}
+#toast.show{opacity:1}
+</style>
+</head>
+<body class="conv">
+
+<div id="overlay">
+  <h1>宴回し</h1>
+  <p>フロアを聴く、もう一人のゲスト。<br>歓談を土台に、上げたいときだけ上げる。</p>
+  <button id="btn-start">開演する</button>
+  <p class="note">音が鳴ります。<b>本体側面の消音スイッチをOFF</b>にして、音量を上げてください。開演時にチャイムが鳴れば準備完了です。</p>
+</div>
+
+<!-- iOSサイレントスイッチ対策用の無音ループ(メディア再生セッション化) -->
+<audio id="unlock-audio" loop playsinline preload="auto"
+  src="data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="></audio>
+
+<header>
+  <h1>宴回し</h1><span class="ver mono">v2.1</span>
+  <span class="mode-badge" id="mode-badge">歓談</span>
+  <button class="icon-btn btn-sub" id="btn-gear">支度</button>
+</header>
+
+<!-- ══ 歓談画面: 場のディスプレイ ══ -->
+<div class="screen" id="screen-conv">
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="disc-wrap"><div class="disc"></div></div>
+    <div class="np-name serif">—</div>
+    <div class="np-meta"><span class="mono np-bpm">—</span> BPM ・ <span class="energy np-energy">○○○</span></div>
+    <div class="phase-line">開演を待っています</div>
+  </div>
+  <div id="conv-actions">
+    <button id="btn-up" class="btn-gold serif">宴を上げる</button>
+    <button class="btn-kanpai">乾杯する</button>
+  </div>
+</div>
+
+<!-- ══ 宴画面: スクロールなしの固定操作盤 ══ -->
+<div class="screen" id="screen-party">
+  <div class="np-strip">
+    <span class="np-name serif">—</span>
+    <span class="np-meta"><span class="mono np-bpm">—</span> ・ <span class="energy np-energy">○○○</span></span>
+    <button id="btn-down" class="btn-sub">歓談に戻す</button>
+  </div>
+
+  <div class="sec-label">次の一曲 — 選ばなければ宴回しが選びます</div>
+  <div class="cards" id="cards"></div>
+
+  <div class="seg">
+    <button id="tab-xy" class="on">カオスパッド</button>
+    <button id="tab-harp">ハープ</button>
+  </div>
+  <div id="face">
+    <div class="face-panel show" id="face-xy">
+      <div id="xy"><div id="xy-dot"></div><span class="xy-hint">横:あかるさ / 縦:ひろがり — 離すと戻ります</span></div>
+    </div>
+    <div class="face-panel" id="face-harp">
+      <div id="harp"></div>
+    </div>
+  </div>
+
+  <div class="row3">
+    <button id="btn-roll">ロール</button>
+    <button id="btn-echoout">エコーアウト</button>
+    <button class="btn-kanpai">乾杯</button>
+  </div>
+
+  <div id="xf-block">
+    <input type="range" id="xf" min="0" max="100" value="0">
+    <div class="xf-labels"><span>いまの曲</span><span>動かすだけで繋がる →</span><span>次の曲</span></div>
+  </div>
+
+  <div class="pads">
+    <button data-pad="horn">ホーン</button>
+    <button data-pad="crowd">歓声</button>
+    <button data-pad="clap">クラップ</button>
+    <button data-pad="laser">レーザー</button>
+    <button data-pad="scratch">スクラッチ</button>
+    <button data-pad="siren">サイレン</button>
+    <button id="btn-spinback">スピンバック</button>
+    <button id="btn-drop">ドロップ</button>
+  </div>
+</div>
+
+<!-- ══ 支度画面 ══ -->
+<div id="screen-setup">
+  <div id="setup-head">
+    <h2>支度</h2>
+    <button class="icon-btn btn-sub" id="btn-close-setup" style="margin-left:auto">とじる</button>
+  </div>
+  <div id="setup-body">
+    <section>
+      <div class="sec-label">曲をさがす(Apple Music 30秒プレビュー)</div>
+      <div id="search-row" style="margin-top:8px">
+        <input type="search" id="q" placeholder="曲名・アーティスト名">
+        <button id="btn-search">さがす</button>
+      </div>
+      <div id="results"></div>
+      <div class="note">検索はGitHub Pages配備後に有効。Claudeアプリ内では外部通信が使えないため、内蔵デモ音源8曲で動きます。読み込んだ曲は「次の一曲」の候補に加わります。</div>
+    </section>
+    <section>
+      <div class="sec-label">手持ちの曲(読み込んだプレビュー)</div>
+      <div id="mytracks"><div class="note">まだありません</div></div>
+      <div class="note">右のボタンで役どころ(歓談/中間/宴)を切り替え。選曲AIがそれに従ってモード別に使い分けます。</div>
+    </section>
+    <section>
+      <div class="sec-label">会話追従</div>
+      <button id="btn-mic" style="margin-top:8px;width:100%">会話追従をつける</button>
+      <div id="mic-meter"><i></i></div>
+      <div class="note">マイクで場の会話量を聴き、会話が弾んでいるあいだ音楽が一歩下がります(HTTPS配備時のみ有効)。</div>
+    </section>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ================= DATA ================= */
+const DATA = {
+  demoTracks: [
+    { id:"d1", name:"宵の凪",         artist:"内蔵デモ", bpm:88,  energy:1, style:"chill",  key:0 },
+    { id:"d2", name:"湯気",           artist:"内蔵デモ", bpm:76,  energy:1, style:"chill",  key:5 },
+    { id:"d3", name:"街灯",           artist:"内蔵デモ", bpm:104, energy:2, style:"groove", key:3 },
+    { id:"d4", name:"夜風ドライブ",   artist:"内蔵デモ", bpm:112, energy:2, style:"groove", key:7 },
+    { id:"d5", name:"台所ファンク",   artist:"内蔵デモ", bpm:108, energy:2, style:"funk",   key:0 },
+    { id:"d6", name:"沸点",           artist:"内蔵デモ", bpm:124, energy:3, style:"peak",   key:0 },
+    { id:"d7", name:"祭囃子ハウス",   artist:"内蔵デモ", bpm:128, energy:3, style:"peak",   key:5 },
+    { id:"d8", name:"稲妻",           artist:"内蔵デモ", bpm:126, energy:3, style:"peak",   key:3 }
+  ],
+  styles: {
+    chill: {
+      kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+      snare: [0,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
+      hat:   [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+      openhat:[0,0,0,0,0,0,0,0, 0,0,0,0, 0,0,0,0],
+      bass:  [0,-1,-1,-1, -1,-1,7,-1, 0,-1,-1,-1, -1,-1,3,-1],
+      pad:true, stab:false, hatGain:0.10
+    },
+    groove: {
+      kick:  [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+      snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hat:   [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+      openhat:[0,0,0,0,0,0,0,0, 0,0,0,0, 0,0,0,0],
+      bass:  [0,-1,0,-1, -1,-1,0,-1, 3,-1,3,-1, -1,-1,5,-1],
+      pad:true, stab:false, hatGain:0.16
+    },
+    funk: {
+      kick:  [1,0,0,1, 0,0,1,0, 1,0,0,0, 0,0,1,0],
+      snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1],
+      hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+      openhat:[0,0,0,0,0,0,0,0, 0,0,0,0, 0,0,0,0],
+      bass:  [0,-1,-1,0, -1,10,-1,-1, 7,-1,-1,5, -1,-1,3,-1],
+      pad:false, stab:true, hatGain:0.14
+    },
+    peak: {
+      kick:  [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+      snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hat:   [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+      openhat:[0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+      bass:  [0,0,12,0, 0,0,12,0, 3,3,15,3, 5,5,17,5],
+      pad:false, stab:true, hatGain:0.20
+    }
+  },
+  autoNextSec: 60,
+  choiceWindowSec: 45,
+  fade: { autoConv: 18, autoParty: 8, pick: 5, cooldown: 14 }
+};
+
+/* ================= 状態 ================= */
+const state = {
+  started:false, mode:"conv",
+  decks:[null,null], live:0,
+  xf:0,
+  candidates:[], pendingChoice:null,
+  micOn:false, micLevel:0,
+  transitioning:false, riserActive:false, stutter:null, echoing:false,
+  autoTimer:null, choiceTimer:null,
+  previewTracks:[]
+};
+
+/* ================= Audio基盤 ================= */
+let ctx, masterGain, duckGain, masterFilter, comp, noiseBuf, padBus, delayFx, musicRev, dryGain, echoSend, echoDelay;
+function makeImpulse(sec=1.8, decay=3){
+  const len = Math.floor(ctx.sampleRate*sec);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for(let ch=0; ch<2; ch++){
+    const d = buf.getChannelData(ch);
+    for(let i=0;i<len;i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/len, decay);
+  }
+  return buf;
+}
+function initAudio(){
+  ctx = new (window.AudioContext||window.webkitAudioContext)();
+  comp = ctx.createDynamicsCompressor();
+  masterFilter = ctx.createBiquadFilter();
+  masterFilter.type = "lowpass"; masterFilter.frequency.value = 18000; masterFilter.Q.value = 0.8;
+  duckGain = ctx.createGain();
+  masterGain = ctx.createGain(); masterGain.gain.value = 0.9;
+  // 音楽の主経路: masterFilter → dryGain → duckGain(エコーアウト時にdryだけ落とす)
+  dryGain = ctx.createGain();
+  masterFilter.connect(dryGain); dryGain.connect(duckGain);
+  duckGain.connect(masterGain); masterGain.connect(comp); comp.connect(ctx.destination);
+  // エコーアウト: masterFilter → echoSend(通常0) → フィードバックディレイ → duckGain
+  echoSend = ctx.createGain(); echoSend.gain.value = 0;
+  echoDelay = ctx.createDelay(1.2); echoDelay.delayTime.value = 0.42;
+  const efb = ctx.createGain(); efb.gain.value = 0.52;
+  const elp = ctx.createBiquadFilter(); elp.type = "lowpass"; elp.frequency.value = 3200;
+  masterFilter.connect(echoSend); echoSend.connect(echoDelay);
+  echoDelay.connect(efb); efb.connect(elp); elp.connect(echoDelay);
+  echoDelay.connect(duckGain);
+  // 共有ノイズバッファ
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+  // パッド用FXバス: padBus(ドライ) + リバーブセンド + フィードバックディレイ
+  padBus = ctx.createGain(); padBus.gain.value = 1; padBus.connect(duckGain);
+  const fxSend = ctx.createGain(); fxSend.gain.value = 0.35;
+  const reverb = ctx.createConvolver(); reverb.buffer = makeImpulse();
+  const revOut = ctx.createGain(); revOut.gain.value = 0.8;
+  padBus.connect(fxSend); fxSend.connect(reverb); reverb.connect(revOut); revOut.connect(duckGain);
+  delayFx = ctx.createDelay(0.5); delayFx.delayTime.value = 0.11;
+  const fb = ctx.createGain(); fb.gain.value = 0.32;
+  delayFx.connect(fb); fb.connect(delayFx); delayFx.connect(duckGain);
+  // 音楽用リバーブセンド(XYパッド縦軸)。初期は0=ドライ
+  musicRev = ctx.createGain(); musicRev.gain.value = 0;
+  masterFilter.connect(musicRev); musicRev.connect(reverb);
+}
+
+/* ---- シンセ部品 ---- */
+function playKick(t, dest, g=0.9){
+  const o=ctx.createOscillator(), gn=ctx.createGain();
+  o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(45,t+0.12);
+  gn.gain.setValueAtTime(g,t); gn.gain.exponentialRampToValueAtTime(0.001,t+0.28);
+  o.connect(gn); gn.connect(dest); o.start(t); o.stop(t+0.3);
+}
+function playSnare(t, dest, g=0.4){
+  const s=ctx.createBufferSource(); s.buffer=noiseBuf;
+  const f=ctx.createBiquadFilter(); f.type="bandpass"; f.frequency.value=1800; f.Q.value=0.8;
+  const gn=ctx.createGain(); gn.gain.setValueAtTime(g,t); gn.gain.exponentialRampToValueAtTime(0.001,t+0.18);
+  s.connect(f); f.connect(gn); gn.connect(dest); s.start(t); s.stop(t+0.2);
+}
+function playHat(t, dest, g=0.15, open=false){
+  const s=ctx.createBufferSource(); s.buffer=noiseBuf;
+  const f=ctx.createBiquadFilter(); f.type="highpass"; f.frequency.value=7000;
+  const dur = open?0.25:0.05;
+  const gn=ctx.createGain(); gn.gain.setValueAtTime(g,t); gn.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  s.connect(f); f.connect(gn); gn.connect(dest); s.start(t); s.stop(t+dur+0.05);
+}
+function playBass(t, dest, semitone, dur, g=0.35){
+  const o=ctx.createOscillator(); o.type="sawtooth";
+  o.frequency.value = 55*Math.pow(2,semitone/12);
+  const f=ctx.createBiquadFilter(); f.type="lowpass"; f.frequency.value=420; f.Q.value=2;
+  const gn=ctx.createGain(); gn.gain.setValueAtTime(g,t); gn.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(f); f.connect(gn); gn.connect(dest); o.start(t); o.stop(t+dur+0.05);
+}
+function playPad(t, dest, rootSemi, dur, g=0.10){
+  [0,3,7,12].forEach(iv=>{
+    const o=ctx.createOscillator(); o.type="triangle";
+    o.frequency.value = 220*Math.pow(2,(rootSemi+iv)/12);
+    const gn=ctx.createGain();
+    gn.gain.setValueAtTime(0.0001,t); gn.gain.linearRampToValueAtTime(g,t+dur*0.4);
+    gn.gain.linearRampToValueAtTime(0.0001,t+dur);
+    o.connect(gn); gn.connect(dest); o.start(t); o.stop(t+dur+0.05);
+  });
+}
+function playStab(t, dest, rootSemi, g=0.12){
+  [0,3,7].forEach(iv=>{
+    const o=ctx.createOscillator(); o.type="sawtooth";
+    o.frequency.value = 440*Math.pow(2,(rootSemi+iv)/12);
+    const f=ctx.createBiquadFilter(); f.type="lowpass"; f.frequency.value=2200;
+    const gn=ctx.createGain(); gn.gain.setValueAtTime(g,t); gn.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    o.connect(f); f.connect(gn); gn.connect(dest); o.start(t); o.stop(t+0.2);
+  });
+}
+
+/* ================= デッキ ================= */
+function makeDeck(){
+  const gain = ctx.createGain(); gain.gain.value = 0; gain.connect(masterFilter);
+  return { gain, track:null, playing:false, step:0, nextT:0, timer:null, src:null, roll:false, rollBase:0 };
+}
+function deckLoad(deck, track){ deckStop(deck); deck.track = track; }
+function deckStart(deck, when){
+  const tr = deck.track; if(!tr) return;
+  deck.playing = true;
+  if(tr.previewUrl && tr.buffer){
+    const s = ctx.createBufferSource(); s.buffer = tr.buffer; s.loop = true;
+    s.connect(deck.gain); s.start(when||ctx.currentTime); deck.src = s;
+  } else {
+    deck.step = 0; deck.nextT = when||ctx.currentTime;
+    const st = DATA.styles[tr.style];
+    const stepDur = ()=> 60/tr.bpm/4;
+    const tick = ()=>{
+      if(!deck.playing) return;
+      while(deck.nextT < ctx.currentTime + 0.12){
+        // ロール中は直近1/8拍(2ステップ)を反復。deck.step自体は進み続けるので離すと自然に追いつく
+        const rawI = deck.step % 16;
+        const i = deck.roll ? (deck.rollBase + (deck.step % 2)) % 16 : rawI;
+        const t = deck.nextT;
+        if(st.kick[i])  playKick(t, deck.gain);
+        if(st.snare[i]) playSnare(t, deck.gain);
+        if(st.hat[i])   playHat(t, deck.gain, st.hatGain);
+        if(st.openhat[i]) playHat(t, deck.gain, st.hatGain+0.04, true);
+        const b = st.bass[i]; if(b>=0) playBass(t, deck.gain, tr.key+b, stepDur()*1.8);
+        if(st.pad && i===0)  playPad(t, deck.gain, tr.key, stepDur()*16);
+        if(st.stab && (i===2||i===6||i===10||i===14)) playStab(t, deck.gain, tr.key+12);
+        deck.step++; deck.nextT += stepDur();
+      }
+      deck.timer = setTimeout(tick, 25);
+    };
+    tick();
+  }
+}
+function deckStop(deck){
+  deck.playing = false; deck.roll = false;
+  if(deck.timer){ clearTimeout(deck.timer); deck.timer=null; }
+  if(deck.src){ try{deck.src.stop();}catch(e){} deck.src=null; }
+}
+function nextBarTime(deck){
+  const tr = deck.track;
+  if(!tr || tr.previewUrl || !deck.playing) return ctx.currentTime + 1;
+  const stepDur = 60/tr.bpm/4;
+  const stepsToBar = 16 - (deck.step % 16);
+  return deck.nextT + stepsToBar * stepDur;
+}
+function applyXF(x){
+  const a = state.decks[state.live], b = state.decks[1-state.live];
+  const t = ctx.currentTime;
+  a.gain.gain.setTargetAtTime(Math.cos(x*Math.PI/2), t, 0.03);
+  b.gain.gain.setTargetAtTime(Math.cos((1-x)*Math.PI/2), t, 0.03);
+}
+
+/* ================= 選曲AI(試作版: エネルギー適合) ================= */
+function trackPool(){ return DATA.demoTracks.concat(state.previewTracks); }
+function targetEnergy(){ return state.mode==="party" ? 3 : 1; }
+function pickCandidates(n=3){
+  const cur = state.decks[state.live].track;
+  const tgt = targetEnergy();
+  const pool = trackPool().filter(t=>t!==cur);
+  const scored = pool.map(t=>{
+    let s = -Math.abs((t.energy||2)-tgt)*10;
+    if(cur && t.bpm && cur.bpm) s -= Math.abs(t.bpm-cur.bpm)*0.05;
+    s += Math.random()*3;
+    return {t,s};
+  }).sort((x,y)=>y.s-x.s);
+  return scored.slice(0,n).map(x=>x.t);
+}
+function pickCandidatesForEnergy(e){
+  const pool = trackPool().filter(t=>(t.energy||2)===e);
+  return pool[Math.floor(Math.random()*pool.length)] || trackPool()[0];
+}
+
+/* ================= 遷移(繋ぎ) ================= */
+function transitionTo(track, smoothSec=8){
+  if(state.transitioning) return;
+  state.transitioning = true;
+  const cur = state.decks[state.live], nxt = state.decks[1-state.live];
+  deckLoad(nxt, track);
+  const startT = nextBarTime(cur);
+  deckStart(nxt, startT);
+  const steps = 30, dt = smoothSec/steps;
+  let i = 0;
+  const delayMs = Math.max(0,(startT - ctx.currentTime))*1000;
+  setTimeout(()=>{
+    const iv = setInterval(()=>{
+      i++;
+      const x = i/steps;
+      cur.gain.gain.setTargetAtTime(Math.cos(x*Math.PI/2), ctx.currentTime, dt/2);
+      nxt.gain.gain.setTargetAtTime(Math.cos((1-x)*Math.PI/2), ctx.currentTime, dt/2);
+      if(i>=steps){
+        clearInterval(iv);
+        deckStop(cur);
+        state.live = 1-state.live;
+        state.transitioning = false;
+        el.xf.value = 0;
+        onTrackChanged();
+      }
+    }, dt*1000);
+  }, delayMs);
+  setNowPlaying(track, "(繋ぎ中…)");
+}
+function dropInto(track){
+  if(state.riserActive) return;
+  state.riserActive = true;
+  const cur = state.decks[state.live];
+  const bpm = (cur.track && cur.track.bpm) || 120;
+  const barSec = 60/bpm*4;
+  const t0 = nextBarTime(cur);
+  const dur = barSec*2;
+  const tEnd = t0 + dur;
+  const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  const bp = ctx.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=1.2;
+  bp.frequency.setValueAtTime(400,t0); bp.frequency.exponentialRampToValueAtTime(6000,tEnd);
+  const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001,t0); ng.gain.exponentialRampToValueAtTime(0.5,tEnd);
+  s.connect(bp); bp.connect(ng); ng.connect(masterFilter); s.start(t0); s.stop(tEnd+0.01);
+  const o = ctx.createOscillator(); o.frequency.setValueAtTime(200,t0); o.frequency.exponentialRampToValueAtTime(800,tEnd);
+  const og = ctx.createGain(); og.gain.setValueAtTime(0.0001,t0); og.gain.exponentialRampToValueAtTime(0.15,tEnd);
+  o.connect(og); og.connect(masterFilter); o.start(t0); o.stop(tEnd+0.01);
+  const gap = 0.12;
+  const cur0 = cur;
+  cur0.gain.gain.setValueAtTime(cur0.gain.gain.value, tEnd-0.02);
+  cur0.gain.gain.linearRampToValueAtTime(0.0001, tEnd);
+  setTimeout(()=>{
+    playKick(ctx.currentTime, masterFilter, 1.2);
+    const boom=ctx.createOscillator(); boom.frequency.setValueAtTime(60,ctx.currentTime); boom.frequency.exponentialRampToValueAtTime(30,ctx.currentTime+0.6);
+    const bg=ctx.createGain(); bg.gain.setValueAtTime(0.6,ctx.currentTime); bg.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.8);
+    boom.connect(bg); bg.connect(masterFilter); boom.start(); boom.stop(ctx.currentTime+0.9);
+    if(track){
+      const cur2 = state.decks[state.live], nxt = state.decks[1-state.live];
+      deckStop(cur2); deckLoad(nxt, track); deckStart(nxt, ctx.currentTime+gap);
+      nxt.gain.gain.setValueAtTime(1, ctx.currentTime+gap);
+      state.live = 1-state.live;
+      onTrackChanged();
+    } else {
+      cur0.gain.gain.setValueAtTime(1, ctx.currentTime+gap);
+    }
+    state.riserActive = false;
+  }, Math.max(0,(tEnd-ctx.currentTime))*1000);
+}
+function spinbackInto(track){
+  if(state.riserActive || state.transitioning) return;
+  state.riserActive = true;
+  const cur = state.decks[state.live];
+  const t = ctx.currentTime, dur = 1.1;
+  if(cur.src){
+    try{
+      cur.src.playbackRate.setValueAtTime(1, t);
+      cur.src.playbackRate.exponentialRampToValueAtTime(0.02, t+dur);
+    }catch(e){}
+  } else if(cur.playing && cur.track){
+    cur.playing = false;
+    if(cur.timer){ clearTimeout(cur.timer); cur.timer = null; }
+    const beat = 60/cur.track.bpm;
+    let tt = t, interval = beat/2, pitch = 1;
+    while(tt < t + dur - 0.05){
+      playKick(tt, cur.gain, 0.8*pitch);
+      playBass(tt, cur.gain, cur.track.key - (1-pitch)*24, interval*0.9, 0.3*pitch);
+      tt += interval; interval *= 1.5; pitch *= 0.8;
+    }
+  }
+  const s=ctx.createBufferSource(); s.buffer=noiseBuf; s.loop=true;
+  const bp=ctx.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=2;
+  bp.frequency.setValueAtTime(3500,t); bp.frequency.exponentialRampToValueAtTime(120,t+dur);
+  const g=ctx.createGain(); g.gain.setValueAtTime(0.3,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  s.connect(bp); bp.connect(g); g.connect(duckGain); s.start(t); s.stop(t+dur+0.02);
+  cur.gain.gain.setValueAtTime(cur.gain.gain.value||1, t);
+  cur.gain.gain.linearRampToValueAtTime(0.0001, t+dur);
+  const gap = 0.35;
+  setTimeout(()=>{
+    deckStop(cur);
+    playKick(ctx.currentTime, masterFilter, 1.2);
+    const nxt = state.decks[1-state.live];
+    deckLoad(nxt, track); deckStart(nxt, ctx.currentTime+0.06);
+    nxt.gain.gain.setValueAtTime(1, ctx.currentTime+0.06);
+    state.live = 1-state.live;
+    state.riserActive = false;
+    onTrackChanged();
+  }, (dur+gap)*1000);
+}
+
+/* ================= 自動運転 ================= */
+function scheduleAutoNext(){
+  clearTimeout(state.autoTimer);
+  state.autoTimer = setTimeout(()=>{
+    if(state.mode==="party"){
+      const pick = state.candidates[Math.floor(Math.random()*state.candidates.length)] || pickCandidates(1)[0];
+      transitionTo(pick, DATA.fade.autoParty);
+      toast("宴回しが次の一曲を選びました");
+    } else {
+      transitionTo(pickCandidates(1)[0], DATA.fade.autoConv);
+    }
+  }, DATA.autoNextSec*1000);
+}
+function onTrackChanged(){
+  const tr = state.decks[state.live].track;
+  setNowPlaying(tr);
+  if(state.mode==="party") renderCandidates();
+  scheduleAutoNext();
+}
+
+/* ================= サンプラー(即時発音・6種+ロール/エコー/ハープ) ================= */
+function padHorn(t){
+  const lp=ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=2600; lp.Q.value=1.2;
+  const g=ctx.createGain(); lp.connect(g); g.connect(padBus);
+  [0,-9,8].forEach(cents=>{
+    const o=ctx.createOscillator(); o.type="sawtooth"; o.detune.value=cents;
+    o.frequency.setValueAtTime(466,t);
+    o.frequency.setValueAtTime(466,t+0.16);
+    o.frequency.linearRampToValueAtTime(415,t+0.20);
+    o.frequency.setValueAtTime(415,t+0.30);
+    o.frequency.linearRampToValueAtTime(466,t+0.34);
+    o.frequency.setValueAtTime(466,t+0.50);
+    o.frequency.linearRampToValueAtTime(392,t+0.62);
+    o.connect(lp); o.start(t); o.stop(t+1.0);
+  });
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.3,t+0.015);
+  g.gain.setValueAtTime(0.3,t+0.82); g.gain.exponentialRampToValueAtTime(0.001,t+1.0);
+}
+function padCrowd(t){
+  const g=ctx.createGain(); g.connect(padBus);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.5,t+0.22);
+  g.gain.setValueAtTime(0.5,t+0.9); g.gain.exponentialRampToValueAtTime(0.001,t+2.0);
+  const s1=ctx.createBufferSource(); s1.buffer=noiseBuf; s1.loop=true;
+  const f1=ctx.createBiquadFilter(); f1.type="bandpass"; f1.frequency.value=900; f1.Q.value=0.7;
+  const lfo=ctx.createOscillator(); lfo.frequency.value=5.3;
+  const lg=ctx.createGain(); lg.gain.value=350;
+  lfo.connect(lg); lg.connect(f1.frequency); lfo.start(t); lfo.stop(t+2.1);
+  s1.connect(f1); f1.connect(g); s1.start(t); s1.stop(t+2.1);
+  const s2=ctx.createBufferSource(); s2.buffer=noiseBuf; s2.loop=true;
+  const f2=ctx.createBiquadFilter(); f2.type="highpass"; f2.frequency.value=5000;
+  const g2=ctx.createGain(); g2.gain.value=0.35;
+  s2.connect(f2); f2.connect(g2); g2.connect(g); s2.start(t); s2.stop(t+2.1);
+}
+function padScratch(t){
+  const seg=[[300,1500,0.07],[1500,350,0.06],[400,1800,0.07],[1800,250,0.09]];
+  let tt=t;
+  seg.forEach(([f0,f1,d])=>{
+    const o=ctx.createOscillator(); o.type="sawtooth";
+    o.frequency.setValueAtTime(f0,tt); o.frequency.exponentialRampToValueAtTime(f1,tt+d);
+    const bp=ctx.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=6;
+    bp.frequency.setValueAtTime(f0*1.2,tt); bp.frequency.exponentialRampToValueAtTime(f1*1.2,tt+d);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.3,tt); g.gain.exponentialRampToValueAtTime(0.01,tt+d);
+    o.connect(bp); bp.connect(g); g.connect(padBus);
+    o.start(tt); o.stop(tt+d+0.01);
+    tt+=d+0.02;
+  });
+}
+function padLaser(t){
+  const o=ctx.createOscillator(); o.type="square";
+  o.frequency.setValueAtTime(1900,t); o.frequency.exponentialRampToValueAtTime(110,t+0.3);
+  const g=ctx.createGain(); g.gain.setValueAtTime(0.2,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.32);
+  o.connect(g); g.connect(padBus); g.connect(delayFx);
+  o.start(t); o.stop(t+0.35);
+}
+function padClap(t){
+  [0,0.03,0.06,0.09].forEach((d,i)=>{
+    const s=ctx.createBufferSource(); s.buffer=noiseBuf;
+    const f=ctx.createBiquadFilter(); f.type="bandpass"; f.frequency.value=1500; f.Q.value=1;
+    const g=ctx.createGain(); const tt=t+d; const last=(i===3);
+    g.gain.setValueAtTime(last?0.5:0.3,tt);
+    g.gain.exponentialRampToValueAtTime(0.001,tt+(last?0.5:0.05));
+    s.connect(f); f.connect(g); g.connect(padBus); s.start(tt); s.stop(tt+(last?0.55:0.07));
+  });
+}
+function padSiren(t){
+  const o=ctx.createOscillator(); o.type="triangle"; o.frequency.value=750;
+  const lfo=ctx.createOscillator(); lfo.frequency.value=2.6;
+  const lg=ctx.createGain(); lg.gain.value=280;
+  lfo.connect(lg); lg.connect(o.frequency);
+  const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.2,t+0.05);
+  g.gain.setValueAtTime(0.2,t+1.1); g.gain.exponentialRampToValueAtTime(0.001,t+1.5);
+  o.connect(g); g.connect(padBus);
+  o.start(t); o.stop(t+1.55); lfo.start(t); lfo.stop(t+1.55);
+}
+const PADS = { horn:padHorn, crowd:padCrowd, scratch:padScratch, laser:padLaser, clap:padClap, siren:padSiren };
+
+/* ロール: デモ曲=パターン反復 / プレビュー曲=ゲートスタッター */
+function rollStart(){
+  const cur = state.decks[state.live];
+  if(cur.track && !cur.track.previewUrl && cur.playing){
+    cur.roll = true; cur.rollBase = cur.step % 16;
+  } else if(cur.src){
+    if(state.stutter) return;
+    state.stutter = setInterval(()=>{
+      const t = ctx.currentTime;
+      cur.gain.gain.setValueAtTime(1, t);
+      cur.gain.gain.setValueAtTime(0.05, t+0.07);
+    }, 140);
+  }
+}
+function rollEnd(){
+  const cur = state.decks[state.live];
+  cur.roll = false;
+  if(state.stutter){
+    clearInterval(state.stutter); state.stutter = null;
+    cur.gain.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
+  }
+}
+
+/* エコーアウト: dryを切って残響の彼方へ→静寂(一言の間)→そっと戻る */
+function echoOut(){
+  if(state.echoing) return;
+  state.echoing = true;
+  const cur = state.decks[state.live];
+  const bpm = (cur.track && cur.track.bpm) || 110;
+  const t = ctx.currentTime;
+  echoDelay.delayTime.setValueAtTime(Math.min(1.1, 60/bpm*0.75), t);
+  echoSend.gain.setValueAtTime(1.0, t);
+  dryGain.gain.setValueAtTime(1, t+0.12);
+  dryGain.gain.linearRampToValueAtTime(0.0001, t+0.25);
+  echoSend.gain.setValueAtTime(1.0, t+0.3);
+  echoSend.gain.linearRampToValueAtTime(0, t+0.5);
+  setTimeout(()=>{
+    dryGain.gain.setTargetAtTime(1, ctx.currentTime, 1.2);
+    setTimeout(()=>{ state.echoing = false; }, 3500);
+  }, 2300);
+  toast("エコーアウト — 一言どうぞ");
+}
+
+/* なでるハープ: 今の曲のキーのマイナーペンタ10弦(外れた音が存在しない) */
+const HARP_SCALE = [0,3,5,7,10,12,15,17,19,22];
+let harpLast = -1;
+function harpPluck(idx){
+  const tr = state.decks[state.live].track;
+  const key = (tr && tr.key) || 0;
+  const f = 220*Math.pow(2,(key+HARP_SCALE[idx])/12);
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = f;
+  const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = f*2;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.22,t); g.gain.exponentialRampToValueAtTime(0.001,t+1.2);
+  const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.08,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+  o.connect(g); o2.connect(g2); g.connect(padBus); g2.connect(padBus);
+  o.start(t); o.stop(t+1.25); o2.start(t); o2.stop(t+0.65);
+}
+
+/* 乾杯: ダッキング+チャイム */
+function kanpai(){
+  const t=ctx.currentTime;
+  duckGain.gain.setTargetAtTime(0.3,t,0.1);
+  duckGain.gain.setTargetAtTime(state.micOn?duckTargetFromMic():1.0, t+2.5, 0.6);
+  [880,1108.7,1318.5,1760].forEach((f,i)=>{
+    const o=ctx.createOscillator(); o.frequency.value=f;
+    const g=ctx.createGain(); const tt=t+0.1+i*0.18;
+    g.gain.setValueAtTime(0.0001,tt); g.gain.linearRampToValueAtTime(0.25,tt+0.02);
+    g.gain.exponentialRampToValueAtTime(0.001,tt+1.6);
+    o.connect(g); g.connect(masterGain); o.start(tt); o.stop(tt+1.7);
+  });
+  toast("乾杯！");
+}
+
+/* ================= 会話追従(マイク) ================= */
+let micAnalyser=null, micData=null, micSmooth=0;
+async function micToggle(){
+  if(state.micOn){
+    state.micOn=false; el.micBtn.textContent="会話追従をつける";
+    duckGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.5);
+    el.micBar.style.width="0";
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const src = ctx.createMediaStreamSource(stream);
+    micAnalyser = ctx.createAnalyser(); micAnalyser.fftSize=1024;
+    micData = new Float32Array(micAnalyser.fftSize);
+    src.connect(micAnalyser);
+    state.micOn=true; el.micBtn.textContent="会話追従をやめる";
+    micLoop();
+  }catch(e){
+    toast("マイクを使えません。HTTPS配備とマイク許可を確認してください");
+  }
+}
+function duckTargetFromMic(){
+  const strength = state.mode==="conv" ? 1.0 : 0.35;
+  const duck = Math.min(micSmooth*6, 1) * strength;
+  return 1.0 - duck*0.68;
+}
+function micLoop(){
+  if(!state.micOn) return;
+  micAnalyser.getFloatTimeDomainData(micData);
+  let sum=0; for(let i=0;i<micData.length;i++) sum+=micData[i]*micData[i];
+  const rms=Math.sqrt(sum/micData.length);
+  micSmooth = micSmooth*0.92 + rms*0.08;
+  el.micBar.style.width = Math.min(micSmooth*600,100)+"%";
+  duckGain.gain.setTargetAtTime(duckTargetFromMic(), ctx.currentTime, 0.4);
+  requestAnimationFrame(micLoop);
+}
+
+/* ================= iTunes検索(JSONP / 配備後有効) ================= */
+function itunesSearch(term){
+  return new Promise((res,rej)=>{
+    const cb = "itcb"+Date.now();
+    const timer = setTimeout(()=>{cleanup(); rej(new Error("timeout"));}, 8000);
+    function cleanup(){ delete window[cb]; s.remove(); clearTimeout(timer); }
+    window[cb] = d=>{ cleanup(); res(d); };
+    const s = document.createElement("script");
+    s.src = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=JP&media=music&limit=10&callback=${cb}`;
+    s.onerror = ()=>{ cleanup(); rej(new Error("network")); };
+    document.body.appendChild(s);
+  });
+}
+async function doSearch(){
+  const q = el.q.value.trim(); if(!q) return;
+  el.results.innerHTML = `<div class="note">さがしています…</div>`;
+  try{
+    const d = await itunesSearch(q);
+    if(!d.results || !d.results.length){ el.results.innerHTML=`<div class="note">見つかりませんでした。別の言葉でさがしてください</div>`; return; }
+    el.results.innerHTML = "";
+    d.results.filter(r=>r.previewUrl).forEach(r=>{
+      const div = document.createElement("div"); div.className="res";
+      div.innerHTML = `<img src="${r.artworkUrl60}" alt=""><div><div class="r-name">${r.trackName}</div><div class="r-artist">${r.artistName}</div></div>`;
+      div.onclick = ()=> addPreviewTrack(r);
+      el.results.appendChild(div);
+    });
+  }catch(e){
+    el.results.innerHTML=`<div class="note">検索できませんでした。Claudeアプリ内では外部通信が使えないため、GitHub Pages配備後にお試しください。内蔵デモ音源はこのまま使えます</div>`;
+  }
+}
+async function addPreviewTrack(r){
+  toast(`「${r.trackName}」を読み込んでいます…`);
+  try{
+    const resp = await fetch(r.previewUrl);
+    const ab = await resp.arrayBuffer();
+    const buf = await ctx.decodeAudioData(ab);
+    const track = { id:"p"+r.trackId, name:r.trackName, artist:r.artistName,
+                    bpm:null, energy:2, previewUrl:r.previewUrl, buffer:buf };
+    state.previewTracks.push(track);
+    renderMyTracks();
+    toast(`「${r.trackName}」が候補に加わりました`);
+    if(state.mode==="party") renderCandidates();
+  }catch(e){
+    toast("この曲の音源を読み込めませんでした(通信制限の可能性)");
+  }
+}
+function renderMyTracks(){ // 手持ちの曲: 役どころ(energy)をタップで循環
+  const box = $("mytracks");
+  if(!state.previewTracks.length){ box.innerHTML = '<div class="note">まだありません</div>'; return; }
+  box.innerHTML = "";
+  const labels = ["","歓談","中間","宴"];
+  state.previewTracks.forEach(tr=>{
+    const div = document.createElement("div"); div.className = "res";
+    div.innerHTML = `<div style="flex:1"><div class="r-name">${tr.name}</div><div class="r-artist">${tr.artist}</div></div><button class="icon-btn">${labels[tr.energy]}</button>`;
+    div.querySelector("button").onclick = (e)=>{
+      e.stopPropagation();
+      tr.energy = tr.energy % 3 + 1;
+      renderMyTracks();
+    };
+    box.appendChild(div);
+  });
+}
+
+/* ================= UI ================= */
+const el = {};
+function $(id){ return document.getElementById(id); }
+function toast(msg){
+  el.toast.textContent = msg; el.toast.classList.add("show");
+  clearTimeout(el.toast._t); el.toast._t = setTimeout(()=>el.toast.classList.remove("show"), 2600);
+}
+function setNowPlaying(tr, suffix=""){
+  const name = tr ? tr.name + (suffix?" "+suffix:"") : "—";
+  document.querySelectorAll(".np-name").forEach(n=> n.textContent = name);
+  document.querySelectorAll(".np-bpm").forEach(n=> n.textContent = tr && tr.bpm ? tr.bpm : "—");
+  const e = tr ? (tr.energy||2) : 0;
+  const dots = [1,2,3].map(i=> i<=e ? `<span class="on${e}">●</span>` : "○").join("");
+  document.querySelectorAll(".np-energy").forEach(n=> n.innerHTML = dots);
+  const ph = state.mode==="conv"
+    ? "歓談モード — 音楽は一歩下がっています"
+    : "パーティーモード — 介入おもちゃ解放中";
+  document.querySelectorAll(".phase-line").forEach(n=> n.textContent = ph);
+}
+function renderCandidates(){
+  state.candidates = pickCandidates(3);
+  el.cards.innerHTML = "";
+  state.candidates.forEach(t=>{
+    const c = document.createElement("div"); c.className="card";
+    c.innerHTML = `<div class="c-name">${t.name}</div><div class="c-meta mono">${t.bpm?t.bpm+" BPM":"preview"}</div>`;
+    c.onclick = ()=>{ transitionTo(t, DATA.fade.pick); toast(`「${t.name}」に繋ぎます`); };
+    el.cards.appendChild(c);
+  });
+}
+function setMode(mode){
+  state.mode = mode;
+  document.body.classList.toggle("party", mode==="party");
+  document.body.classList.toggle("conv", mode==="conv");
+  el.modeBadge.textContent = mode==="party" ? "宴" : "歓談";
+  if(mode==="party"){
+    dropInto(pickCandidatesForEnergy(3));
+    renderCandidates();
+    toast("宴、上げます");
+  } else {
+    transitionTo(pickCandidatesForEnergy(1), DATA.fade.cooldown);
+    toast("ゆっくり戻します");
+  }
+  setNowPlaying(state.decks[state.live].track);
+  scheduleAutoNext();
+}
+
+/* ================= 起動 ================= */
+window.addEventListener("DOMContentLoaded", ()=>{
+  ["overlay","q","results","toast"].forEach(id=> el[id]=$(id));
+  el.modeBadge=$("mode-badge"); el.cards=$("cards"); el.xf=$("xf");
+  el.micBtn=$("btn-mic"); el.micBar=document.querySelector("#mic-meter i");
+
+  $("btn-start").onclick = ()=>{
+    const unlock = $("unlock-audio");
+    unlock.play().catch(()=>{});
+    initAudio();
+    ctx.resume().then(()=>{
+      state.decks = [makeDeck(), makeDeck()];
+      const t = ctx.currentTime + 0.05;
+      [659.3, 880].forEach((f,i)=>{
+        const o=ctx.createOscillator(); o.frequency.value=f;
+        const g=ctx.createGain(); const tt=t+i*0.22;
+        g.gain.setValueAtTime(0.0001,tt); g.gain.linearRampToValueAtTime(0.3,tt+0.02);
+        g.gain.exponentialRampToValueAtTime(0.001,tt+1.2);
+        o.connect(g); g.connect(masterGain); o.start(tt); o.stop(tt+1.3);
+      });
+      const first = DATA.demoTracks[0];
+      deckLoad(state.decks[0], first);
+      deckStart(state.decks[0], t+0.6);
+      state.decks[0].gain.gain.value = 1;
+      state.started = true;
+      document.body.classList.add("playing");
+      el.overlay.style.display = "none";
+      setNowPlaying(first);
+      scheduleAutoNext();
+      toast("開演。チャイムが聞こえなければ消音スイッチと音量を確認");
+    });
+  };
+
+  // モード切替(歓談画面の「宴を上げる」/ 宴画面の「歓談に戻す」)
+  $("btn-up").onclick = ()=> state.started && setMode("party");
+  $("btn-down").onclick = ()=> state.started && setMode("conv");
+  // 乾杯(両モード常設)
+  document.querySelectorAll(".btn-kanpai").forEach(b=> b.onclick = ()=> state.started && kanpai());
+  // 支度画面
+  $("btn-gear").onclick = ()=> $("screen-setup").classList.add("open");
+  $("btn-close-setup").onclick = ()=> $("screen-setup").classList.remove("open");
+  // 顔領域タブ(カオスパッド⇄ハープ)
+  const faceTabs = [["tab-xy","face-xy"],["tab-harp","face-harp"]];
+  faceTabs.forEach(([tabId,panelId])=>{
+    $(tabId).onclick = ()=>{
+      faceTabs.forEach(([t2,p2])=>{
+        $(t2).classList.toggle("on", t2===tabId);
+        $(p2).classList.toggle("show", p2===panelId);
+      });
+    };
+  });
+
+  // クロスフェーダー(手動・裏デッキ即時始動)
+  el.xf.addEventListener("input", ()=>{
+    const x = el.xf.value/100;
+    const nxt = state.decks[1-state.live];
+    if(!nxt.playing && x>0.02){
+      const t = state.candidates[0] || pickCandidates(1)[0];
+      deckLoad(nxt, t); deckStart(nxt, ctx.currentTime + 0.05);
+      toast(`裏で「${t.name}」が回り始めました`);
+    }
+    applyXF(x);
+    if(x>=0.98 && nxt.playing){
+      deckStop(state.decks[state.live]);
+      state.live = 1-state.live;
+      el.xf.value = 0; applyXF(0);
+      onTrackChanged();
+    }
+  });
+
+  // XYカオスパッド
+  const xy = $("xy"), dot = $("xy-dot");
+  function xyApply(nx, ny){
+    const f = 200 * Math.pow(100, nx);
+    masterFilter.frequency.setTargetAtTime(f, ctx.currentTime, 0.04);
+    musicRev.gain.setTargetAtTime((1-ny)*0.7, ctx.currentTime, 0.06);
+  }
+  function xyMove(e){
+    const r = xy.getBoundingClientRect();
+    const nx = Math.min(1, Math.max(0, (e.clientX-r.left)/r.width));
+    const ny = Math.min(1, Math.max(0, (e.clientY-r.top)/r.height));
+    dot.style.left = nx*100+"%"; dot.style.top = ny*100+"%";
+    if(state.started) xyApply(nx, ny);
+  }
+  function xyRelease(){
+    if(!xy.classList.contains("active")) return;
+    xy.classList.remove("active");
+    if(!state.started) return;
+    masterFilter.frequency.setTargetAtTime(18000, ctx.currentTime, 0.25);
+    musicRev.gain.setTargetAtTime(0, ctx.currentTime, 0.3);
+  }
+  xy.addEventListener("pointerdown", e=>{ xy.setPointerCapture(e.pointerId); xy.classList.add("active"); xyMove(e); });
+  xy.addEventListener("pointermove", e=>{ if(xy.classList.contains("active")) xyMove(e); });
+  ["pointerup","pointercancel"].forEach(ev=> xy.addEventListener(ev, xyRelease));
+
+  // なでるハープ
+  const harp = $("harp");
+  function harpMove(e){
+    const r = harp.getBoundingClientRect();
+    const idx = Math.min(9, Math.max(0, Math.floor((e.clientX-r.left)/r.width*10)));
+    if(idx !== harpLast){ harpPluck(idx); harpLast = idx; }
+  }
+  harp.addEventListener("pointerdown", e=>{
+    if(!state.started) return;
+    harp.setPointerCapture(e.pointerId); harp.classList.add("strum"); harpMove(e);
+  });
+  harp.addEventListener("pointermove", e=>{ if(harp.classList.contains("strum")) harpMove(e); });
+  ["pointerup","pointercancel"].forEach(ev=> harp.addEventListener(ev, ()=>{ harp.classList.remove("strum"); harpLast = -1; }));
+
+  // ロール(押している間だけ)
+  const rollBtn = $("btn-roll");
+  rollBtn.addEventListener("pointerdown", e=>{
+    e.preventDefault();
+    if(!state.started) return;
+    rollBtn.setPointerCapture(e.pointerId);
+    rollStart();
+  });
+  ["pointerup","pointercancel"].forEach(ev=> rollBtn.addEventListener(ev, ()=> state.started && rollEnd()));
+
+  // エコーアウト
+  $("btn-echoout").onclick = ()=> state.started && echoOut();
+
+  // サンプラー(指を離した瞬間に発音)
+  document.querySelectorAll("[data-pad]").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      if(!state.started) return;
+      PADS[b.dataset.pad](ctx.currentTime + 0.02);
+    });
+  });
+  // スピンバック
+  $("btn-spinback").onclick = ()=>{
+    if(!state.started) return;
+    const pick = state.candidates[0] || pickCandidates(1)[0];
+    spinbackInto(pick);
+    toast("スピンバック！");
+  };
+  // ドロップ
+  $("btn-drop").onclick = ()=>{
+    if(!state.started) return;
+    const pick = state.candidates[0] || pickCandidates(1)[0];
+    dropInto(pick);
+    toast("ライザー、入ります");
+  };
+  // マイク
+  el.micBtn.onclick = ()=> state.started && micToggle();
+  // 検索
+  $("btn-search").onclick = doSearch;
+  el.q.addEventListener("keydown", e=>{ if(e.key==="Enter") doSearch(); });
+
+  // 長押しでのコピー/コンテキストメニュー抑止(検索欄は除く)
+  document.addEventListener("contextmenu", e=>{
+    if(!e.target.closest("input,textarea")) e.preventDefault();
+  });
+  // バックグラウンド復帰・不意のsuspendからの自動再開
+  const wake = ()=>{ if(ctx && ctx.state==="suspended") ctx.resume(); };
+  document.addEventListener("visibilitychange", wake);
+  document.addEventListener("touchend", wake, {passive:true});
+});
+</script>
+</body>
+</html>
